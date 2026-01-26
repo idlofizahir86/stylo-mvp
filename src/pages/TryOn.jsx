@@ -946,7 +946,6 @@ export default function TryOn() {
       
             
              {/* DEBUG PANEL - Tampilkan informasi real-time */}
-            // Di TryOn.jsx, tambahkan debug panel yang interaktif:
             {process.env.NODE_ENV === 'development' && (
             <div className="fixed bottom-4 left-4 bg-black/90 text-white p-4 rounded-lg text-sm font-mono z-50 max-w-md border border-gray-700">
                 <div className="flex justify-between items-center mb-3">
