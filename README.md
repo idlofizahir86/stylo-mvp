@@ -34,4 +34,4 @@ Stylo adalah platform wardrobe digital dengan fitur personal mix & match dan vir
 1. Clone repository:
 ```bash
 git clone <your-repo-url>
-cd stylo-mvp
+cd stylo-mvp-new

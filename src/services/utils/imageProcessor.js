@@ -1,106 +1,101 @@
-export const processImage = async (file, options = {}) => {
-  const {
-    maxWidth = 1024,
-    maxHeight = 1024,
-    quality = 0.8,
-    format = 'webp'
-  } = options;
+// src/services/utils/imageProcessor.js
+export class ImageProcessor {
+  static async compressImage(file, maxSizeKB = 500) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      
+      reader.onload = (event) => {
+        const img = new Image();
+        img.src = event.target.result;
+        
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+          
+          // Calculate new dimensions while maintaining aspect ratio
+          const maxDimension = 1200;
+          if (width > height && width > maxDimension) {
+            height = (height * maxDimension) / width;
+            width = maxDimension;
+          } else if (height > maxDimension) {
+            width = (width * maxDimension) / height;
+            height = maxDimension;
+          }
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          
+          // Convert to blob with quality adjustment
+          let quality = 0.9;
+          const compress = () => {
+            canvas.toBlob((blob) => {
+              if (blob.size / 1024 > maxSizeKB && quality > 0.1) {
+                quality -= 0.1;
+                compress();
+              } else {
+                resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+              }
+            }, 'image/jpeg', quality);
+          };
+          
+          compress();
+        };
+        
+        img.onerror = reject;
+      };
+      
+      reader.onerror = reject;
+    });
+  }
 
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
+  static async getImageDimensions(file) {
+    return new Promise((resolve, reject) => {
       const img = new Image();
-      img.onload = async () => {
-        // Calculate new dimensions
-        let width = img.width;
-        let height = img.height;
-
-        if (width > maxWidth || height > maxHeight) {
-          const ratio = Math.min(maxWidth / width, maxHeight / height);
-          width = Math.floor(width * ratio);
-          height = Math.floor(height * ratio);
-        }
-
-        // Create canvas for processing
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        canvas.width = width;
-        canvas.height = height;
-
-        // Draw and process image
-        ctx.drawImage(img, 0, 0, width, height);
-
-        // Apply image enhancements if needed
-        if (options.enhance) {
-          await enhanceImage(ctx, canvas);
-        }
-
-        // Convert to desired format
-        const processedUrl = canvas.toDataURL(`image/${format}`, quality);
-
-        resolve({
-          url: processedUrl,
-          width,
-          height,
-          format,
-          size: processedUrl.length * 0.75, // Approximate size in bytes
-          originalSize: file.size
-        });
+      img.onload = () => {
+        resolve({ width: img.width, height: img.height });
       };
       img.onerror = reject;
-      img.src = e.target.result;
-    };
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-};
+      img.src = URL.createObjectURL(file);
+    });
+  }
 
-const enhanceImage = async (ctx, canvas) => {
-  try {
-    // Simple image enhancement (contrast and brightness)
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imageData.data;
+  static async validateImage(file) {
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/jpg'];
+    const maxSize = 5 * 1024 * 1024; // 5MB
     
-    // Adjust contrast and brightness
-    const contrast = 1.2;
-    const brightness = 10;
-    
-    for (let i = 0; i < data.length; i += 4) {
-      // Brightness
-      data[i] = Math.min(255, data[i] + brightness);
-      data[i + 1] = Math.min(255, data[i + 1] + brightness);
-      data[i + 2] = Math.min(255, data[i + 2] + brightness);
-      
-      // Contrast
-      data[i] = ((data[i] / 255 - 0.5) * contrast + 0.5) * 255;
-      data[i + 1] = ((data[i + 1] / 255 - 0.5) * contrast + 0.5) * 255;
-      data[i + 2] = ((data[i + 2] / 255 - 0.5) * contrast + 0.5) * 255;
+    if (!validTypes.includes(file.type)) {
+      throw new Error('Please upload a valid image (JPEG, PNG, WebP)');
     }
     
-    ctx.putImageData(imageData, 0, 0);
-  } catch (error) {
-    console.warn('Image enhancement failed:', error);
+    if (file.size > maxSize) {
+      throw new Error('Image size must be less than 5MB');
+    }
+    
+    return true;
   }
-};
 
-export const createImageThumbnail = async (imageUrl, size = 200) => {
-  return new Promise((resolve) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
+  static async captureFromCamera() {
+    return new Promise((resolve, reject) => {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.capture = 'environment';
       
-      // Calculate thumbnail dimensions
-      const ratio = Math.min(size / img.width, size / img.height);
-      const width = Math.floor(img.width * ratio);
-      const height = Math.floor(img.height * ratio);
+      input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (file) {
+          resolve(file);
+        } else {
+          reject(new Error('No image selected'));
+        }
+      };
       
-      canvas.width = width;
-      canvas.height = height;
-      ctx.drawImage(img, 0, 0, width, height);
-      
-      resolve(canvas.toDataURL('image/jpeg', 0.7));
-    };
-    img.src = imageUrl;
-  });
-};
+      input.click();
+    });
+  }
+}

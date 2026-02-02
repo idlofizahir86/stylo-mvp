@@ -6,6 +6,9 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Poppins', 'sans-serif'], // Jadikan Poppins font utama
+      },
       colors: {
         primary: {
           50: '#f0f9ff',

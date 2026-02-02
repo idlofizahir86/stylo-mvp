@@ -16,32 +16,52 @@ import {
 const wardrobeRef = collection(db, 'wardrobe');
 
 export const wardrobeService = {
+
   // Add new clothing item
   async addItem(itemData) {
     try {
-      console.log('Adding item to Firestore:', itemData);
+      console.log('➕ Adding item to Firestore:', itemData);
       
-      // Remove any Firebase-specific fields if they exist
       const itemToSave = {
         name: itemData.name || 'Unnamed Item',
         type: itemData.type || 'top',
         color: itemData.color || '#000000',
         category: itemData.category || 'casual',
         imageUrl: itemData.imageUrl || '',
+        
+        // Cloudinary data (jika ada)
+        cloudinaryUrl: itemData.cloudinaryUrl || '',
+        cloudinaryPublicId: itemData.cloudinaryPublicId || '',
+        thumbUrl: itemData.thumbUrl || '',
+        
+        // Metadata
         createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        favorite: itemData.favorite || false,
+        wornCount: itemData.wornCount || 0,
+        
+        // Additional fields dari form
+        season: itemData.season || '',
+        brand: itemData.brand || '',
+        price: itemData.price || 0,
+        notes: itemData.notes || '',
+        tags: itemData.tags || [],
+        material: itemData.material || '',
+        size: itemData.size || '',
+        condition: itemData.condition || 'new'
       };
 
       const docRef = await addDoc(wardrobeRef, itemToSave);
-      console.log('Item added with ID:', docRef.id);
+      console.log('✅ Item added with ID:', docRef.id);
       
       return { 
         id: docRef.id, 
         ...itemToSave,
-        createdAt: new Date().toISOString() // Fallback timestamp
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       };
     } catch (error) {
-      console.error('Error adding item to Firestore:', error);
+      console.error('❌ Error adding item:', error);
       throw new Error(`Failed to add item: ${error.message}`);
     }
   },
@@ -49,19 +69,18 @@ export const wardrobeService = {
   // Get all wardrobe items
   async getItems() {
     try {
-      console.log('Fetching items from Firestore...');
+      console.log('📋 Fetching items from Firestore...');
       
-      // Try to get items with timestamp ordering
       let q;
       try {
         q = query(wardrobeRef, orderBy('createdAt', 'desc'));
       } catch (error) {
-        console.warn('Cannot order by createdAt, fetching without order:', error);
+        console.warn('Cannot order by createdAt:', error);
         q = query(wardrobeRef);
       }
       
       const snapshot = await getDocs(q);
-      console.log(`Found ${snapshot.docs.length} items`);
+      console.log(`✅ Found ${snapshot.docs.length} items`);
       
       const items = snapshot.docs.map(doc => {
         const data = doc.data();
@@ -71,17 +90,26 @@ export const wardrobeService = {
           type: data.type || 'top',
           color: data.color || '#000000',
           category: data.category || 'casual',
-          imageUrl: data.imageUrl || '',
+          imageUrl: data.imageUrl || data.cloudinaryUrl || '', // Gunakan cloudinaryUrl jika ada
+          thumbUrl: data.thumbUrl || '',
+          
+          // Additional fields
+          season: data.season || '',
+          brand: data.brand || '',
+          price: data.price || 0,
+          notes: data.notes || '',
+          tags: data.tags || [],
+          
           createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
-          updatedAt: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString()
+          updatedAt: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+          favorite: data.favorite || false,
+          wornCount: data.wornCount || 0
         };
       });
       
       return items;
     } catch (error) {
-      console.error('Error getting items from Firestore:', error);
-      
-      // Return empty array instead of throwing to prevent app crash
+      console.error('❌ Error getting items:', error);
       return [];
     }
   },
@@ -99,7 +127,7 @@ export const wardrobeService = {
       console.error('Error updating item:', error);
       throw error;
     }
-  },
+  },  
 
   // Delete item
   async deleteItem(id) {

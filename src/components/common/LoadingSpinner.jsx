@@ -1,16 +1,17 @@
 export default function LoadingSpinner({ size = 'md', text = 'Loading...' }) {
   const sizeClasses = {
-    sm: 'h-6 w-6 border-2',
-    md: 'h-8 w-8 border-2',
-    lg: 'h-12 w-12 border-3',
+    sm: 'w-6 h-6',
+    md: 'w-10 h-10',
+    lg: 'w-16 h-16'
   };
 
   return (
-    <div className="flex flex-col items-center justify-center">
-      <div
-        className={`animate-spin rounded-full ${sizeClasses[size] || sizeClasses.md} border-solid border-primary-500 border-t-transparent`}
-      />
-      {text && <p className="mt-2 text-sm text-gray-600">{text}</p>}
+    <div className="flex flex-col items-center justify-center min-h-[200px] space-y-4">
+      <div className="relative">
+        <div className={`${sizeClasses[size]} border-4 border-gray-200 rounded-full`}></div>
+        <div className={`${sizeClasses[size]} border-4 border-blue-500 border-t-transparent rounded-full absolute top-0 left-0 animate-spin`}></div>
+      </div>
+      {text && <p className="text-gray-600 font-medium">{text}</p>}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import WardrobeItem from './WardrobeItem';
+import WardrobeItemAdd from './WardrobeItemAdd';
 
-export default function WardrobeGrid({ items = [], onItemClick }) {
+export default function WardrobeGrid({ items = [], onItemClick, onItemAdd }) {
   if (items.length === 0) {
     return (
       <div className="text-center py-12">
@@ -17,6 +18,7 @@ export default function WardrobeGrid({ items = [], onItemClick }) {
 
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+      <WardrobeItemAdd onClick={() => onItemAdd()} />
       {items.map((item) => (
         <WardrobeItem
           key={item.id}

@@ -1,54 +1,68 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { Canvas } from '@react-three/fiber';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { 
   Camera, 
   Image as ImageIcon, 
-  RotateCw, 
+  RefreshCw, 
   Download,
   AlertCircle,
   CheckCircle,
-  User,
-  Zap
+  Sparkles,
+  Maximize2,
+  Minimize2,
+  Heart,
+  Share2,
+  X,
+  ScanLine,
+  Zap,
+  ChevronLeft,
+  ChevronRight,
+  Grid3x3,
+  Settings,
+  Eye,
+  EyeOff,
+  Play
 } from 'lucide-react';
-import ARClothingRenderer from '../components/tryon/ARClothingRenderer';
 import { useMediaPipe } from '../hooks/useMediaPipe';
 import { useFirestore } from '../hooks/useFirestore';
 import LoadingScreen from '../components/tryon/LoadingScreen';
-import PoseOverlay2D from '../components/tryon/PoseOverlay2D';
-import CanvasPoseVisualizer from '../components/tryon/CanvasPoseVisualizer';
+import toast from 'react-hot-toast';
 
 export default function TryOn() {
-  // === STATE DECLARATIONS (ALL AT TOP, NO CONDITIONAL HOOKS) ===
+  // === STATE DECLARATIONS ===
   const [mode, setMode] = useState('camera');
   const [isDetecting, setIsDetecting] = useState(false);
   const [selectedOutfit, setSelectedOutfit] = useState(null);
   const [videoDimensions, setVideoDimensions] = useState({ width: 640, height: 480 });
   const [showDebug, setShowDebug] = useState(false);
   const [calibrationComplete, setCalibrationComplete] = useState(false);
-  const [snackbar, setSnackbar] = useState({ show: false, message: '', type: 'info' });
   const [cameraStream, setCameraStream] = useState(null);
-  const [isCameraReady, setIsCameraReady] = useState('stopped'); // 'stopped', 'starting', 'ready', 'error'
-
+  const [isCameraReady, setIsCameraReady] = useState('stopped');
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [activeTab, setActiveTab] = useState('outfits');
+  const [showSkeleton, setShowSkeleton] = useState(true);
+  const [showKeypoints, setShowKeypoints] = useState(true);
+  const [currentOutfitIndex, setCurrentOutfitIndex] = useState(0);
+  
   const [debugInfo, setDebugInfo] = useState({
     poseCount: 0,
     lastPoseTime: null,
     fps: 0
-    });
-    
+  });
   
   // Refs
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const fileInputRef = useRef(null);
-  const threeCanvasRef = useRef(null);
+  const containerRef = useRef(null);
+  const poseCanvasRef = useRef(null);
   
-  // Custom Hooks (ALWAYS CALLED, NO CONDITIONALS)
+  // Custom Hooks
   const { 
     pose, 
     startPoseDetection, 
     stopPoseDetection, 
     isInitialized, 
-    isDetecting: poseDetecting,
     error: poseError,
     isLoading: isLoadingPose,
     loadingStep,
@@ -59,107 +73,6 @@ export default function TryOn() {
   
   const { items: wardrobeItems, loading: wardrobeLoading } = useFirestore();
 
-  useEffect(() => {
-    if (pose) {
-        console.log('🎯 POSE DATA RECEIVED:', {
-        keypointsCount: pose.keypointsCount,
-        score: pose.score,
-        hasKeypoints: !!pose.keypoints,
-        keypointsList: Object.keys(pose.keypoints || {}),
-        // Log beberapa keypoints penting
-        leftShoulder: pose.keypoints?.left_shoulder,
-        rightShoulder: pose.keypoints?.right_shoulder,
-        leftHip: pose.keypoints?.left_hip,
-        rightHip: pose.keypoints?.right_hip,
-        videoDimensions: videoDimensions
-        });
-        
-        // Log semua keypoints yang score > 0.3
-        Object.entries(pose.keypoints || {}).forEach(([name, point]) => {
-        if (point.score > 0.3) {
-            console.log(`  ${name}: x=${Math.round(point.x)}, y=${Math.round(point.y)}, score=${point.score.toFixed(2)}`);
-        }
-        });
-    }
-    }, [pose]);
-
-  useEffect(() => {
-    // Debug logging
-    console.log('=== TENSORFLOW DEBUG INFO ===');
-    console.log('window.tf:', window.tf);
-    console.log('window.PoseDetection:', window.PoseDetection);
-    console.log('window.tfLoaded:', window.tfLoaded);
-    console.log('window.tfLoading:', window.tfLoading);
-    console.log('window.tfLoadError:', window.tfLoadError);
-    console.log('=============================');
-    }, []);
-
-    useEffect(() => {
-    if (pose) {
-        setDebugInfo(prev => ({
-        poseCount: prev.poseCount + 1,
-        lastPoseTime: new Date().toLocaleTimeString(),
-        fps: Math.round(1000 / (Date.now() - (prev.lastTimestamp || Date.now())))
-        }));
-    }
-    }, [pose]);
-
-    {process.env.NODE_ENV === 'development' && (
-  <div className="fixed bottom-4 left-4 bg-black/80 text-white p-4 rounded-lg text-sm font-mono z-50 max-w-md">
-    <div className="font-bold mb-2">🔍 AR DEBUG PANEL</div>
-    
-    <div className="grid grid-cols-2 gap-2">
-      <div className="space-y-1">
-        <div className="text-gray-400">Camera</div>
-        <div>{videoDimensions.width}x{videoDimensions.height}</div>
-        <div>{isCameraReady ? '✅ Ready' : '❌ Not Ready'}</div>
-      </div>
-      
-      <div className="space-y-1">
-        <div className="text-gray-400">Pose Detection</div>
-        <div>{isDetecting ? '🟢 Active' : '🔴 Inactive'}</div>
-        <div>FPS: {debugInfo.fps}</div>
-      </div>
-      
-      <div className="space-y-1 col-span-2">
-        <div className="text-gray-400">Current Pose</div>
-        <div>{pose ? `✅ ${pose.keypointsCount} keypoints` : '❌ No pose'}</div>
-        {pose && (
-          <>
-            <div>Score: {pose.score?.toFixed(2)}</div>
-            <div>Shoulders: {pose.keypoints.left_shoulder ? '✅' : '❌'}</div>
-            <div>Hips: {pose.keypoints.left_hip ? '✅' : '❌'}</div>
-          </>
-        )}
-      </div>
-      
-      <div className="space-y-1 col-span-2">
-        <div className="text-gray-400">Selected Outfit</div>
-        <div>{selectedOutfit ? selectedOutfit.name : 'None'}</div>
-        <div>{selectedOutfit?.items?.length || 0} items</div>
-      </div>
-      
-      <div className="col-span-2">
-        <button
-          onClick={() => {
-            console.log('=== FULL DEBUG INFO ===');
-            console.log('Pose:', pose);
-            console.log('Video Element:', videoRef.current);
-            console.log('Video Stream:', videoRef.current?.srcObject);
-            console.log('Selected Outfit:', selectedOutfit);
-            console.log('Clothing Items:', selectedOutfit?.items);
-          }}
-          className="w-full mt-2 px-3 py-1 bg-blue-600 rounded text-xs"
-        >
-          Log Debug Info
-        </button>
-      </div>
-    </div>
-  </div>
-)}
-
-    
-  
   // Memoized outfits
   const availableOutfits = useRef([]);
   useEffect(() => {
@@ -167,129 +80,61 @@ export default function TryOn() {
       availableOutfits.current = [
         {
           id: 'top-bottom',
-          name: 'Top & Bottom',
-          items: wardrobeItems.filter(item => item.type === 'top' || item.type === 'bottom').slice(0, 2)
+          name: 'Casual Style',
+          description: 'Clean outfit with jacket',
+          items: wardrobeItems.filter(item => item.type === 'top' || item.type === 'bottom').slice(0, 2),
+          emoji: '👕👖',
+          color: 'from-blue-500 to-cyan-400',
+          category: 'Casual'
         },
         {
           id: 'dress',
-          name: 'Dress',
-          items: wardrobeItems.filter(item => item.type === 'dress').slice(0, 1)
+          name: 'Summer Dress',
+          items: wardrobeItems.filter(item => item.type === 'dress').slice(0, 1),
+          emoji: '👗',
+          color: 'from-pink-500 to-rose-400',
+          category: 'Formal'
         },
         {
           id: 'top-only',
-          name: 'Top Only',
-          items: wardrobeItems.filter(item => item.type === 'top').slice(0, 1)
+          name: 'Graphic Tee',
+          items: wardrobeItems.filter(item => item.type === 'top').slice(0, 1),
+          emoji: '👕',
+          color: 'from-purple-500 to-pink-400',
+          category: 'Casual'
         },
         {
           id: 'bottom-only',
-          name: 'Bottom Only',
-          items: wardrobeItems.filter(item => item.type === 'bottom').slice(0, 1)
+          name: 'Cargo Pants',
+          items: wardrobeItems.filter(item => item.type === 'bottom').slice(0, 1),
+          emoji: '👖',
+          color: 'from-green-500 to-emerald-400',
+          category: 'Casual'
+        },
+        {
+          id: 'jacket',
+          name: 'Denim Jacket',
+          items: wardrobeItems.filter(item => item.type === 'outerwear').slice(0, 1),
+          emoji: '🧥',
+          color: 'from-indigo-500 to-blue-400',
+          category: 'Outerwear'
+        },
+        {
+          id: 'shoes',
+          name: 'White Sneakers',
+          items: wardrobeItems.filter(item => item.type === 'shoes').slice(0, 1),
+          emoji: '👟',
+          color: 'from-gray-500 to-gray-400',
+          category: 'Footwear'
         }
       ].filter(outfit => outfit.items.length > 0);
     }
   }, [wardrobeItems]);
 
-  // Snackbar helper
-  const showMessage = useCallback((message, type = 'info') => {
-    setSnackbar({ show: true, message, type });
-    setTimeout(() => setSnackbar({ show: false, message: '', type: 'info' }), 3000);
-  }, []);
-
-    // Camera functions
-    const startCamera = useCallback(async () => {
-  if (videoRef.current?.srcObject) {
-    console.log('📹 Camera already has stream, skipping...');
-    return;
-  }
-  
+  // Initialize camera - SIMPLIFIED VERSION
+  const initializeCamera = async () => {
   try {
-    console.log('🚀 Starting camera...');
-    showMessage('Starting camera...', 'info');
-    
-    setIsCameraReady('starting');
-    
-    // Gunakan resolusi yang lebih rendah untuk performa lebih baik
-    const constraints = {
-      video: {
-        facingMode: 'user',
-        width: { ideal: 640, max: 1280 },
-        height: { ideal: 480, max: 720 },
-        frameRate: { ideal: 24 }
-      }
-    };
 
-    const stream = await navigator.mediaDevices.getUserMedia(constraints);
-    setCameraStream(stream);
-    
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream;
-      
-      // Tunggu video ready
-      await new Promise((resolve) => {
-        if (videoRef.current.readyState >= 2) {
-          resolve();
-        } else {
-          videoRef.current.onloadeddata = resolve;
-        }
-      });
-      
-      const width = videoRef.current.videoWidth;
-      const height = videoRef.current.videoHeight;
-      
-      console.log(`📹 Camera ready: ${width}x${height}`);
-      setVideoDimensions({ width, height });
-      setIsCameraReady('ready');
-      
-      showMessage('Camera ready!', 'success');
-    }
-    
-  } catch (error) {
-    console.error('❌ Camera error:', error);
-    setIsCameraReady('error');
-    showMessage(`Camera failed: ${error.message}`, 'error');
-  }
-}, [showMessage]);
-
-  const stopCamera = useCallback(() => {
-    console.log('🛑 Stopping camera...');
-    setIsCameraReady('stopping');
-    
-    // Stop stream jika ada
-    if (cameraStream) {
-        cameraStream.getTracks().forEach(track => {
-        console.log(`Stopping track: ${track.kind}`);
-        track.stop();
-        });
-        setCameraStream(null);
-    }
-    
-    // Clear video element
-    if (videoRef.current?.srcObject) {
-        videoRef.current.srcObject = null;
-    }
-    
-    setIsCameraReady('stopped');
-    console.log('✅ Camera stopped');
-    }, [cameraStream]); // Dependency hanya cameraStream
-
-  // Camera effect
-  useEffect(() => {
-  console.log('🎬 Page loaded - initializing camera...');
-  
-  let mounted = true;
-  let cameraStream = null;
-  
-  const initCamera = async () => {
-    try {
-      if (!mounted) return;
-      
-      // 1. Pastikan kita di mode camera
-      setMode('camera');
-      
-      // 2. Tunggu render selesai
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // 3. Dapatkan camera stream
       if (!videoRef.current) {
         console.log('⏳ Waiting for video element...');
         await new Promise(resolve => {
@@ -302,227 +147,347 @@ export default function TryOn() {
         });
       }
       
-      // 4. Jika sudah ada stream, skip
-      if (videoRef.current?.srcObject) {
-        console.log('✅ Camera already active');
-        return;
-      }
-      
-      // 5. Dapatkan camera stream dengan cara SIMPLE
-      console.log('📡 Requesting camera access...');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          frameRate: { ideal: 24 }
-        }
-      });
-      
-      if (!mounted) {
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-      
-      cameraStream = stream;
-      
-      // 6. Set ke video element
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        
-        // 7. Tunggu video ready
-        await new Promise((resolve) => {
-          if (videoRef.current.readyState >= 2) {
-            resolve();
-          } else {
-            videoRef.current.onloadeddata = resolve;
-            setTimeout(resolve, 1000); // Fallback timeout
-          }
-        });
-        
-        // 8. Update dimensions
-        if (videoRef.current.videoWidth > 2) {
-          setVideoDimensions({
-            width: videoRef.current.videoWidth,
-            height: videoRef.current.videoHeight
-          });
-          console.log(`🎥 Camera ready: ${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`);
-        }
-      }
-      
-    } catch (error) {
-      if (mounted) {
-        console.error('❌ Camera init failed:', error);
-        // Tampilkan pesan error di UI
-        setSnackbar({
-          show: true,
-          message: `Camera error: ${error.message}`,
-          type: 'error'
-        });
-      }
-    }
-  };
-  
-  // Start initialization
-  initCamera();
-  
-  // Cleanup function
-  return () => {
-    console.log('🧼 Component cleanup');
-    mounted = false;
+    console.log('1️⃣ START initializeCamera');
+    setIsCameraReady('starting');
+    console.log('2️⃣ State set to "starting"');
     
-    // Stop camera stream
+    // Stop existing stream if any
+    if (cameraStream) {
+      console.log('3️⃣ Stopping previous camera stream');
+      cameraStream.getTracks().forEach(track => {
+        console.log(`   Stopping ${track.kind} track`);
+        track.stop();
+      });
+    }
+    
+    console.log('4️⃣ Requesting camera permission...');
+    const constraints = {
+      video: {
+        facingMode: 'user',
+        width: { ideal: 640 },
+        height: { ideal: 480 }
+      }
+    };
+
+    console.log('5️⃣ Calling getUserMedia...');
+    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+    console.log('✅ 6️⃣ getUserMedia SUCCESS - Stream obtained');
+    
+    setCameraStream(stream);
+    console.log('7️⃣ cameraStream state updated');
+    
+    if (!videoRef.current) {
+      console.error('❌ videoRef is null!');
+      setIsCameraReady('error');
+      return;
+    }
+    
+    console.log('8️⃣ Setting srcObject to video element');
+    videoRef.current.srcObject = stream;
+    
+    // Setup canvas
+    if (poseCanvasRef.current) {
+      poseCanvasRef.current.width = 640;
+      poseCanvasRef.current.height = 480;
+      console.log('9️⃣ Canvas dimensions set');
+    }
+    
+    console.log('🔟 Waiting for video to be ready...');
+    
+    // Versi SANGAT SEDERHANA untuk testing
+    return new Promise((resolve) => {
+      const checkVideo = () => {
+        console.log(`   Video readyState: ${videoRef.current.readyState}`);
+        console.log(`   Video width: ${videoRef.current.videoWidth}`);
+        console.log(`   Video height: ${videoRef.current.videoHeight}`);
+        
+        if (videoRef.current.videoWidth > 0) {
+          const width = videoRef.current.videoWidth;
+          const height = videoRef.current.videoHeight;
+          console.log(`   📏 Video dimensions: ${width}x${height}`);
+          
+          setVideoDimensions({ width, height });
+          
+          if (poseCanvasRef.current) {
+            poseCanvasRef.current.width = width;
+            poseCanvasRef.current.height = height;
+          }
+          
+          setIsCameraReady('ready');
+          console.log('🎉 Camera READY!');
+          
+          // Try to play
+          videoRef.current.play()
+            .then(() => console.log('▶️ Video playback started'))
+            .catch(err => console.warn('⚠️ Autoplay blocked:', err.name));
+          
+          resolve();
+          return true;
+        }
+        return false;
+      };
+      
+      // Cek langsung
+      if (checkVideo()) {
+        return;
+      }
+      
+      // Coba lagi setelah delay
+      setTimeout(() => {
+        if (!checkVideo()) {
+          console.warn('⚠️ Video not ready yet, but proceeding anyway');
+          setIsCameraReady('ready');
+          resolve();
+        }
+      }, 500);
+      
+      // Fallback timeout
+      setTimeout(() => {
+        console.log('⏰ Fallback timeout - marking as ready');
+        setIsCameraReady('ready');
+        resolve();
+      }, 3000);
+    });
+    
+  } catch (error) {
+    console.error('❌ ERROR in initializeCamera:', error);
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    
+    setIsCameraReady('error');
+    
+    if (error.name === 'NotAllowedError') {
+      toast.error('Camera permission denied. Please allow access.');
+    } else if (error.name === 'NotFoundError') {
+      toast.error('No camera found on this device.');
+    } else if (error.name === 'NotReadableError') {
+      toast.error('Camera is busy or not readable.');
+    } else {
+      toast.error(`Camera error: ${error.message}`);
+    }
+  }
+};
+
+  // Start camera on mount
+  useEffect(() => {
+    console.log('🏁 Component mounted');
+    
+    // Start camera with a small delay
+    const timer = setTimeout(() => {
+      initializeCamera();
+    }, 500);
+    
+    return () => {
+      clearTimeout(timer);
+      stopCamera();
+      stopPoseDetection();
+    };
+  }, []);
+
+  // Draw pose on canvas
+  useEffect(() => {
+    if (pose && poseCanvasRef.current && videoRef.current && showSkeleton) {
+      drawPoseOnCanvas();
+    }
+  }, [pose, showSkeleton, showKeypoints]);
+
+  const stopCamera = () => {
     if (cameraStream) {
       cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
     }
-    
-    // Clear video element
     if (videoRef.current?.srcObject) {
       videoRef.current.srcObject = null;
     }
-    
-    // Stop pose detection jika aktif
-    if (isDetecting) {
-      stopPoseDetection();
-    }
+    setIsCameraReady('stopped');
   };
-}, []); // ✅ HANYA jalan sekali saat komponen mount
 
-  // AR functions
-    const handleStartAR = useCallback(async () => {
+  const drawPoseOnCanvas = () => {
+    const canvas = poseCanvasRef.current;
+    if (!canvas || !pose || !pose.keypoints) return;
+    
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Mirror canvas to match video
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.translate(-canvas.width, 0);
+    
+    const keypoints = Object.values(pose.keypoints);
+    
+    // Draw skeleton
+    if (showSkeleton) {
+      ctx.strokeStyle = '#10b981';
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      
+      const connections = [
+        ['left_shoulder', 'right_shoulder'],
+        ['left_shoulder', 'left_hip'],
+        ['right_shoulder', 'right_hip'],
+        ['left_hip', 'right_hip'],
+        ['left_shoulder', 'left_elbow'],
+        ['left_elbow', 'left_wrist'],
+        ['right_shoulder', 'right_elbow'],
+        ['right_elbow', 'right_wrist'],
+        ['left_hip', 'left_knee'],
+        ['left_knee', 'left_ankle'],
+        ['right_hip', 'right_knee'],
+        ['right_knee', 'right_ankle']
+      ];
+      
+      connections.forEach(([startKey, endKey]) => {
+        const startPoint = pose.keypoints[startKey];
+        const endPoint = pose.keypoints[endKey];
+        
+        if (startPoint && endPoint && startPoint.score > 0.3 && endPoint.score > 0.3) {
+          ctx.beginPath();
+          ctx.moveTo(startPoint.x, startPoint.y);
+          ctx.lineTo(endPoint.x, endPoint.y);
+          ctx.stroke();
+        }
+      });
+    }
+    
+    // Draw keypoints
+    if (showKeypoints) {
+      keypoints.forEach(point => {
+        if (point.score > 0.3) {
+          ctx.fillStyle = '#3b82f6';
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 8, 0, Math.PI * 2);
+          ctx.fill();
+          
+          ctx.fillStyle = '#ffffff';
+          ctx.beginPath();
+          ctx.arc(point.x, point.y, 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      });
+    }
+    
+    ctx.restore();
+  };
+
+
+  const handleStartAR = async () => {
     if (!selectedOutfit || selectedOutfit.items.length === 0) {
-        showMessage('Please select an outfit first!', 'warning');
-        return;
+      toast.error('Please select an outfit first!');
+      return;
     }
 
     if (!isInitialized) {
-        showMessage('Body tracking system initializing...', 'warning');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        return;
+      toast.loading('Initializing AI...');
+      return;
     }
 
-    if (!videoRef.current || videoRef.current.videoWidth === 0) {
-        showMessage('Camera not ready. Please wait...', 'warning');
-        return;
+    // Ensure video is playing
+    if (videoRef.current && videoRef.current.paused) {
+      await videoRef.current.play();
     }
 
     setIsDetecting(true);
     setCalibrationComplete(false);
     
-    showMessage('Starting body tracking...', 'info');
-
     try {
-        // Start pose detection dengan video yang sudah ada
-        await startPoseDetection(videoRef.current, (detectedPose) => {
-        if (detectedPose && !calibrationComplete) {
-            setCalibrationComplete(true);
-            // showMessage('Body tracking active! Move naturally.', 'success');
-        }
-        });
-        
+      await startPoseDetection(videoRef.current);
+      toast.success('Body tracking started!');
     } catch (error) {
-        console.error('Failed to start pose detection:', error);
-        showMessage(`Tracking error: ${error.message}`, 'error');
-        setIsDetecting(false);
+      console.error('Failed to start pose detection:', error);
+      toast.error('Tracking failed');
+      setIsDetecting(false);
     }
-    }, [selectedOutfit, isInitialized, startPoseDetection, calibrationComplete, showMessage]);
+  };
 
-  const handleStopAR = useCallback(() => {
+  const handleStopAR = () => {
     setIsDetecting(false);
     stopPoseDetection();
     setCalibrationComplete(false);
-    showMessage('AR try-on stopped', 'info');
-  }, [stopPoseDetection, showMessage]);
+    toast('Tracking stopped');
+  };
 
-  const handleFileUpload = useCallback((event) => {
-    const file = event.target.files[0];
-    if (!file) return;
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      containerRef.current?.requestFullscreen?.();
+      setIsFullscreen(true);
+      setShowControls(false);
+    } else {
+      document.exitFullscreen?.();
+      setIsFullscreen(false);
+      setShowControls(true);
+    }
+  };
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const img = new Image();
-      img.onload = () => {
-        if (canvasRef.current) {
-          const ctx = canvasRef.current.getContext('2d');
-          canvasRef.current.width = img.width;
-          canvasRef.current.height = img.height;
-          ctx.drawImage(img, 0, 0);
-          setVideoDimensions({ width: img.width, height: img.height });
-        }
-      };
-      img.src = e.target.result;
-    };
-    reader.readAsDataURL(file);
-    setMode('upload');
-    showMessage('Photo loaded successfully', 'success');
-  }, [showMessage]);
-
-  const handleSaveSnapshot = useCallback(() => {
+  const handleSaveSnapshot = () => {
     try {
       const snapshotCanvas = document.createElement('canvas');
       const ctx = snapshotCanvas.getContext('2d');
       
-      if (mode === 'camera' && videoRef.current) {
-        snapshotCanvas.width = videoDimensions.width;
-        snapshotCanvas.height = videoDimensions.height;
+      snapshotCanvas.width = videoDimensions.width;
+      snapshotCanvas.height = videoDimensions.height;
+      
+      if (videoRef.current) {
         ctx.drawImage(videoRef.current, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
-        
-        if (threeCanvasRef.current) {
-          const threeCanvas = threeCanvasRef.current;
-          ctx.drawImage(threeCanvas, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
-        }
-      } else if (mode === 'upload' && canvasRef.current) {
-        snapshotCanvas.width = canvasRef.current.width;
-        snapshotCanvas.height = canvasRef.current.height;
-        ctx.drawImage(canvasRef.current, 0, 0);
-      } else {
-        showMessage('Nothing to save', 'warning');
-        return;
+      }
+      
+      if (poseCanvasRef.current && isDetecting) {
+        ctx.drawImage(poseCanvasRef.current, 0, 0, snapshotCanvas.width, snapshotCanvas.height);
       }
       
       // Add watermark
       ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-      ctx.fillRect(10, snapshotCanvas.height - 60, 200, 50);
+      ctx.fillRect(20, snapshotCanvas.height - 80, 300, 70);
       ctx.fillStyle = 'white';
-      ctx.font = 'bold 14px Arial';
-      ctx.fillText('Styled with Stylo', 20, snapshotCanvas.height - 40);
-      ctx.font = '12px Arial';
-      ctx.fillText(new Date().toLocaleDateString(), 20, snapshotCanvas.height - 20);
+      ctx.font = 'bold 16px Arial';
+      ctx.fillText('Styled with Stylo', 30, snapshotCanvas.height - 50);
+      ctx.font = '14px Arial';
+      ctx.fillText(new Date().toLocaleDateString(), 30, snapshotCanvas.height - 25);
       
       if (selectedOutfit) {
-        ctx.fillText(selectedOutfit.name, 20, snapshotCanvas.height - 55);
+        ctx.font = 'bold 18px Arial';
+        ctx.fillText(selectedOutfit.name, 30, snapshotCanvas.height - 75);
       }
       
-      // Download
       const link = document.createElement('a');
-      link.download = `stylo-tryon-${Date.now()}.png`;
+      link.download = `stylo-ar-${Date.now()}.png`;
       link.href = snapshotCanvas.toDataURL('image/png', 1.0);
       link.click();
       
-      showMessage('Snapshot saved!', 'success');
-      snapshotCanvas.remove();
+      toast.success('Snapshot saved!');
     } catch (error) {
       console.error('Error saving snapshot:', error);
-      showMessage('Failed to save snapshot', 'error');
+      toast.error('Failed to save snapshot');
     }
-  }, [mode, videoDimensions, selectedOutfit, showMessage]);
+  };
 
-  const handleReset = useCallback(() => {
+  const handleReset = () => {
+    console.log('🔄 Resetting camera...');
     handleStopAR();
     stopCamera();
     calibrateBody();
     
     setTimeout(() => {
-      if (mode === 'camera') {
-        startCamera();
-      }
+      initializeCamera();
     }, 500);
     
-    showMessage('Reset complete', 'info');
-  }, [handleStopAR, stopCamera, calibrateBody, mode, startCamera, showMessage]);
+    toast('Camera reset');
+  };
 
-  // === RENDER LOGIC (NO HOOKS AFTER THIS LINE) ===
-  
+  const handleNextOutfit = () => {
+    if (availableOutfits.current.length === 0) return;
+    const nextIndex = (currentOutfitIndex + 1) % availableOutfits.current.length;
+    setCurrentOutfitIndex(nextIndex);
+    setSelectedOutfit(availableOutfits.current[nextIndex]);
+  };
+
+  const handlePrevOutfit = () => {
+    if (availableOutfits.current.length === 0) return;
+    const prevIndex = (currentOutfitIndex - 1 + availableOutfits.current.length) % availableOutfits.current.length;
+    setCurrentOutfitIndex(prevIndex);
+    setSelectedOutfit(availableOutfits.current[prevIndex]);
+  };
+
   // Show loading screen while AI model is loading
   if (isLoadingPose) {
     return (
@@ -535,557 +500,361 @@ export default function TryOn() {
     );
   }
 
-  // Show error screen if pose detection failed
   if (poseError && !isInitialized) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
-        <div className="max-w-md w-full p-8 bg-white rounded-xl shadow-lg text-center">
-          <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <AlertCircle className="h-8 w-8 text-red-600" />
+        <div className="max-w-md w-full p-8 bg-white rounded-2xl shadow-xl text-center">
+          <div className="w-20 h-20 mx-auto bg-gradient-to-br from-red-100 to-red-50 rounded-2xl flex items-center justify-center mb-6">
+            <AlertCircle className="h-10 w-10 text-red-600" />
           </div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
             AI Model Failed to Load
           </h2>
           <p className="text-gray-600 mb-6">{poseError}</p>
-          <div className="space-y-4">
+          <div className="space-y-3">
             <button
               onClick={retryInitialization}
-              className="w-full btn-primary"
+              className="w-full py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all"
             >
               Retry Loading AI Model
             </button>
             <button
               onClick={() => window.location.reload()}
-              className="w-full btn-secondary"
+              className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-semibold hover:bg-gray-200 transition-colors"
             >
               Refresh Page
             </button>
-          </div>
-          <div className="mt-6 text-sm text-gray-500">
-            <p>If the problem persists:</p>
-            <ul className="mt-2 space-y-1">
-              <li>• Check your internet connection</li>
-              <li>• Disable ad blockers for this site</li>
-              <li>• Try a different browser (Chrome recommended)</li>
-            </ul>
           </div>
         </div>
       </div>
     );
   }
 
-  // Main render
   return (
-    <div className="space-y-8">
+    <div className="min-h-screen bg-gradient-to-b from-indigo-900 to-blue-900 text-white">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900">Virtual Try-On</h1>
-        <p className="text-gray-600 mt-2">
-          Real-time body tracking with AI-powered clothing placement
-        </p>
+      <div className="flex items-center justify-between p-4">
+        <X className="h-6 w-6 text-white" />
+        <button className="px-4 py-2 rounded-full bg-gray-700 text-white">AR Try On Mode</button>
+        <button className="px-4 py-2 rounded-full bg-purple-500 text-white">AI Try On Mode</button>
       </div>
 
-        
+      {/* AR Preview Section */}
+      <div className="relative mx-4 border-2 border-white/30 rounded-3xl overflow-hidden" style={{ height: '60vh' }}>
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted
+          className="w-full h-full object-cover"
+          style={{ 
+            transform: 'scaleX(-1)',
+            backgroundColor: '#000'
+          }}
+          onClick={() => {
+            if (videoRef.current && videoRef.current.paused) {
+              console.log('👆 User clicked video to start playback');
+              videoRef.current.play().catch(e => {
+                console.log('Play on click failed:', e);
+              });
+            }
+          }}
+        />
 
-      {/* Snackbar */}
-      {snackbar.show && (
-        <div className={`fixed top-4 right-4 z-50 px-6 py-3 rounded-lg shadow-lg ${
-          snackbar.type === 'error' ? 'bg-red-500' :
-          snackbar.type === 'warning' ? 'bg-yellow-500' :
-          snackbar.type === 'success' ? 'bg-green-500' : 'bg-blue-500'
-        } text-white transition-transform duration-300`}>
-          <div className="flex items-center space-x-2">
-            {snackbar.type === 'success' && <CheckCircle className="h-5 w-5" />}
-            {snackbar.type === 'error' && <AlertCircle className="h-5 w-5" />}
-            <span>{snackbar.message}</span>
+        {/* Pose Overlay Canvas */}
+        <canvas
+          ref={poseCanvasRef}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+        />
+
+        {/* Scan Animation */}
+        {isDetecting && (
+          <div className="absolute inset-0 pointer-events-none">
+            <div className="absolute inset-x-4 top-1/4 h-2/3 border-2 border-green-400/30 rounded-3xl overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-green-400 to-transparent animate-[scan_2s_ease-in-out_infinite]" />
+            </div>
+          </div>
+        )}
+
+        {/* Camera Loading/Error Overlay */}
+        {isCameraReady !== 'ready' && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80">
+            <div className="text-center space-y-4 p-6">
+              <div className={`w-20 h-20 rounded-2xl flex items-center justify-center mx-auto mb-4 ${
+                isCameraReady === 'starting' ? 'animate-pulse bg-blue-500/20' :
+                isCameraReady === 'error' ? 'bg-red-500/20' : 'bg-gray-500/20'
+              }`}>
+                {isCameraReady === 'starting' && (
+                  <div className="w-10 h-10 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+                )}
+                {isCameraReady === 'error' && (
+                  <AlertCircle className="h-10 w-10 text-red-400" />
+                )}
+                {isCameraReady === 'stopped' && (
+                  <Camera className="h-10 w-10 text-gray-400" />
+                )}
+              </div>
+
+              <h3 className="text-xl font-bold text-white">
+                {isCameraReady === 'starting' && 'Starting Camera...'}
+                {isCameraReady === 'error' && 'Camera Error'}
+                {isCameraReady === 'stopped' && 'Camera Not Ready'}
+              </h3>
+              
+              <p className="text-gray-300">
+                {isCameraReady === 'starting' && 'Please wait...'}
+                {isCameraReady === 'error' && 'Unable to access camera'}
+                {isCameraReady === 'stopped' && 'Camera needs to be started'}
+              </p>
+              
+              {(isCameraReady === 'error' || isCameraReady === 'stopped') && (
+                <button
+                  onClick={initializeCamera}
+                  className="mt-4 px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-xl font-semibold hover:shadow-xl transition-all"
+                >
+                  Start Camera
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Top Controls Bar */}
+        {showControls && isCameraReady === 'ready' && (
+          <div className="absolute top-0 left-0 right-0 z-20 p-4 bg-gradient-to-b from-black/70 to-transparent">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`px-3 py-1.5 rounded-full text-sm font-medium backdrop-blur-sm ${
+                  isDetecting 
+                    ? 'bg-green-500/20 text-green-300 border border-green-500/30' 
+                    : 'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                }`}>
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${isDetecting ? 'bg-green-500 animate-pulse' : 'bg-blue-500'}`} />
+                    {isDetecting ? 'Tracking Active' : 'Ready'}
+                  </div>
+                </div>
+                
+                {pose && (
+                  <div className="hidden sm:flex items-center gap-4">
+                    <div className="text-white text-sm">
+                      <span className="font-bold">{pose.keypointsCount}</span> points
+                    </div>
+                    <div className="text-white text-sm">
+                      <span className="font-bold">{Math.round(pose.score * 100)}%</span> confidence
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowSkeleton(!showSkeleton)}
+                  className="p-2 bg-black/50 backdrop-blur-sm rounded-xl text-white hover:bg-black/70 transition-colors"
+                >
+                  {showSkeleton ? <Eye size={20} /> : <EyeOff size={20} />}
+                </button>
+                <button
+                  onClick={toggleFullscreen}
+                  className="p-2 bg-black/50 backdrop-blur-sm rounded-xl text-white hover:bg-black/70 transition-colors"
+                >
+                  {isFullscreen ? <Minimize2 size={20} /> : <Maximize2 size={20} />}
+                </button>
+                <button
+                  onClick={handleReset}
+                  className="p-2 bg-black/50 backdrop-blur-sm rounded-xl text-white hover:bg-black/70 transition-colors"
+                >
+                  <RefreshCw size={20} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* No Selection Overlay */}
+        {!selectedOutfit && isCameraReady === 'ready' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500/20 to-purple-500/20 flex items-center justify-center mb-4 border border-white/10">
+              <Sparkles size={32} className="text-white/60" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Select an Outfit</h3>
+            <p className="text-white/60 text-center px-8">
+              Choose an outfit below to start AR try-on
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Outfit Selection Section */}
+      <div className="px-4 py-4">
+        {wardrobeLoading ? (
+          <div className="text-center">
+            <div className="w-16 h-16 mx-auto bg-gray-100 rounded-2xl flex items-center justify-center mb-4 animate-pulse">
+              <AlertCircle className="h-8 w-8 text-gray-400" />
+            </div>
+            <p className="text-white/70">Loading outfits...</p>
+          </div>
+        ) : availableOutfits.current.length > 0 ? (
+          <div className="text-center mt-4">
+            <h4 className="font-bold text-lg text-white">{availableOutfits.current[currentOutfitIndex].name}</h4>
+            <p className="text-white/70 text-sm">{availableOutfits.current[currentOutfitIndex].description || availableOutfits.current[currentOutfitIndex].category}</p>
+            <div className="flex justify-center gap-4 mt-4">
+              {availableOutfits.current[currentOutfitIndex].items.map((item, index) => (
+                <div key={index} className="w-12 h-12 rounded-full bg-indigo-800 flex items-center justify-center">
+                  {item.imageUrl ? (
+                    <img 
+                      src={item.imageUrl} 
+                      alt={item.name}
+                      className="w-8 h-8 object-contain"
+                    />
+                  ) : (
+                    <span className="text-2xl">
+                      {item.type === 'top' && '👕'}
+                      {item.type === 'bottom' && '👖'}
+                      {item.type === 'dress' && '👗'}
+                      {item.type === 'shoes' && '👟'}
+                      {item.type === 'outerwear' && '🧥'}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-center gap-2 mt-4">
+              <button
+                onClick={handlePrevOutfit}
+                disabled={availableOutfits.current.length === 0}
+                className="p-2 bg-indigo-800 rounded-lg disabled:opacity-30"
+              >
+                <ChevronLeft size={20} />
+              </button>
+              <button
+                onClick={handleNextOutfit}
+                disabled={availableOutfits.current.length === 0}
+                className="p-2 bg-indigo-800 rounded-lg disabled:opacity-30"
+              >
+                <ChevronRight size={20} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="text-center mt-4">
+            <div className="w-16 h-16 mx-auto bg-indigo-800 rounded-2xl flex items-center justify-center mb-4">
+              <AlertCircle className="h-8 w-8 text-white/70" />
+            </div>
+            <p className="text-white/70 mb-2">No outfits available</p>
+            <a 
+              href="/wardrobe" 
+              className="text-purple-400 hover:text-purple-300 font-medium text-sm"
+            >
+              Add items to wardrobe →
+            </a>
+          </div>
+        )}
+
+        {/* Buttons */}
+        <div className="flex gap-2 mt-8 px-4">
+          <button
+            onClick={() => {
+              if (availableOutfits.current.length > 0) {
+                setSelectedOutfit(availableOutfits.current[currentOutfitIndex]);
+                handleStartAR();
+              }
+            }}
+            disabled={availableOutfits.current.length === 0}
+            className="flex-1 py-3 bg-white text-black rounded-full font-semibold disabled:opacity-50"
+          >
+            AI Generate
+          </button>
+          <button
+            onClick={handleSaveSnapshot}
+            className="flex-1 py-3 bg-purple-500 text-white rounded-full font-semibold"
+          >
+            Manual Photo
+          </button>
+        </div>
+      </div>
+
+      <div className="fixed bottom-28 right-4 z-30 space-y-3">
+        <button
+          onClick={() => toast('Coming soon!')}
+          className="w-12 h-12 rounded-full bg-gradient-to-br from-purple-500 to-pink-400 text-white shadow-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+        >
+          <Grid3x3 size={20} />
+        </button>
+        <button
+          onClick={() => setShowDebug(!showDebug)}
+          className="w-12 h-12 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 text-white shadow-xl flex items-center justify-center hover:scale-105 active:scale-95 transition-transform"
+        >
+          <Settings size={20} />
+        </button>
+      </div>
+
+      {showDebug && (
+        <div className="fixed bottom-32 left-4 right-4 z-50">
+          <div className="bg-gray-900/90 backdrop-blur-sm text-white rounded-2xl p-4 border border-gray-700">
+            <div className="flex justify-between items-center mb-3">
+              <div className="flex items-center gap-2">
+                <ScanLine size={18} />
+                <span className="font-bold">Debug Panel</span>
+              </div>
+              <button
+                onClick={() => setShowDebug(false)}
+                className="p-1 hover:bg-gray-800 rounded-lg"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowSkeleton(!showSkeleton)}
+                  className={`px-3 py-1.5 rounded-lg text-sm ${showSkeleton ? 'bg-green-600' : 'bg-gray-700'}`}
+                >
+                  Skeleton: {showSkeleton ? 'ON' : 'OFF'}
+                </button>
+                <button
+                  onClick={() => setShowKeypoints(!showKeypoints)}
+                  className={`px-3 py-1.5 rounded-lg text-sm ${showKeypoints ? 'bg-blue-600' : 'bg-gray-700'}`}
+                >
+                  Keypoints: {showKeypoints ? 'ON' : 'OFF'}
+                </button>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="bg-gray-800 p-2 rounded-lg">
+                  <div className="text-gray-400">Camera</div>
+                  <div className="font-mono">{videoDimensions.width}x{videoDimensions.height}</div>
+                  <div className="text-gray-400 text-xs">State: {isCameraReady}</div>
+                </div>
+                <div className="bg-gray-800 p-2 rounded-lg">
+                  <div className="text-gray-400">Pose</div>
+                  <div className="font-mono">{pose ? 'Detected' : 'None'}</div>
+                </div>
+                <div className="bg-gray-800 p-2 rounded-lg">
+                  <div className="text-gray-400">FPS</div>
+                  <div className="font-mono">{debugInfo.fps || 0}</div>
+                </div>
+              </div>
+              
+              <button
+                onClick={() => {
+                  console.log('=== DEBUG ===');
+                  console.log('Camera state:', isCameraReady);
+                  console.log('Needs interaction:', needsUserInteraction);
+                  console.log('Video element:', videoRef.current);
+                  console.log('Video paused:', videoRef.current?.paused);
+                  console.log('Video readyState:', videoRef.current?.readyState);
+                  console.log('Stream:', cameraStream);
+                }}
+                className="w-full py-2 bg-blue-600 rounded-lg text-sm font-medium hover:bg-blue-700"
+              >
+                Log Debug Info
+              </button>
+            </div>
           </div>
         </div>
       )}
-
-      {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Panel - Controls */}
-        <div className="lg:col-span-1 space-y-6">
-          {/* Mode Selection */}
-          <div className="card">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">Try-On Mode</h2>
-            
-            <div className="grid grid-cols-2 gap-2 mb-6">
-              <button
-                onClick={() => setMode('camera')}
-                className={`flex flex-col items-center p-4 rounded-lg border transition-all ${
-                  mode === 'camera'
-                    ? 'border-primary-500 bg-primary-50'
-                    : 'border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                <Camera className="h-8 w-8 mb-2" />
-                <span className="text-sm font-medium">Live AR</span>
-              </button>
-              
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className={`flex flex-col items-center p-4 rounded-lg border transition-all ${
-                  mode === 'upload'
-                    ? 'border-primary-500 bg-primary-50'
-                    : 'border-gray-200 hover:bg-gray-50'
-                }`}
-              >
-                <ImageIcon className="h-8 w-8 mb-2" />
-                <span className="text-sm font-medium">Photo</span>
-              </button>
-              
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                onChange={handleFileUpload}
-                className="hidden"
-              />
-            </div>
-
-            <button
-              onClick={isDetecting ? handleStopAR : handleStartAR}
-              disabled={(!selectedOutfit || selectedOutfit.items.length === 0) && !isDetecting}
-              className="w-full btn-primary flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isDetecting ? (
-                <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  <span>Stop AR</span>
-                </>
-              ) : (
-                <>
-                  <Camera className="h-5 w-5" />
-                  <span>Start AR Try-On</span>
-                </>
-              )}
-            </button>
-          </div>
-
-          {/* Outfit Selection */}
-          <div className="card">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold text-gray-900">Select Outfit</h2>
-              <button
-                onClick={() => setSelectedOutfit(null)}
-                className="text-sm text-gray-600 hover:text-gray-900 disabled:opacity-50"
-                disabled={!selectedOutfit}
-              >
-                Clear
-              </button>
-            </div>
-            
-            {wardrobeLoading ? (
-              <div className="flex justify-center py-8">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500"></div>
-              </div>
-            ) : availableOutfits.current.length > 0 ? (
-              <div className="space-y-3">
-                {availableOutfits.current.map((outfit) => (
-                  <button
-                    key={outfit.id}
-                    onClick={() => setSelectedOutfit(outfit)}
-                    className={`w-full text-left p-3 rounded-lg border transition-all ${
-                      selectedOutfit?.id === outfit.id
-                        ? 'border-primary-500 bg-primary-50'
-                        : 'border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    <div className="flex items-center">
-                      <div className="flex space-x-1 mr-3">
-                        {outfit.items.slice(0, 2).map((item, index) => (
-                          <div key={index} className="w-10 h-10 bg-gray-100 rounded overflow-hidden">
-                            <img
-                              src={item.imageUrl}
-                              alt={item.name}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        ))}
-                      </div>
-                      <div>
-                        <h3 className="font-medium text-gray-900">{outfit.name}</h3>
-                        <p className="text-sm text-gray-600">
-                          {outfit.items.length} item{outfit.items.length > 1 ? 's' : ''}
-                        </p>
-                      </div>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8">
-                <p className="text-gray-500 mb-4">No outfits available</p>
-                <a 
-                  href="/wardrobe" 
-                  className="text-primary-600 hover:text-primary-700 font-medium"
-                >
-                  Add items to wardrobe →
-                </a>
-              </div>
-            )}
-          </div>
-
-          {/* Selected Outfit Preview */}
-          {selectedOutfit && (
-            <div className="card">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="font-bold text-gray-900">Selected Items</h3>
-                <span className="text-sm bg-primary-100 text-primary-800 px-2 py-1 rounded">
-                  {selectedOutfit.items.length} items
-                </span>
-              </div>
-              <div className="space-y-2">
-                {selectedOutfit.items.map((item, index) => (
-                  <div key={index} className="flex items-center p-2 bg-gray-50 rounded">
-                    <div className="w-12 h-12 bg-gray-100 rounded overflow-hidden mr-3 flex-shrink-0">
-                      <img
-                        src={item.imageUrl}
-                        alt={item.name}
-                        className="w-full h-full object-cover"
-                      />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-medium text-gray-900 truncate">{item.name}</p>
-                      <div className="flex items-center space-x-2">
-                        <span className="text-sm text-gray-600 capitalize">{item.type}</span>
-                        <div 
-                          className="w-3 h-3 rounded-full border border-gray-300"
-                          style={{ backgroundColor: item.color }}
-                          title={item.color}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Right Panel - AR Preview */}
-        <div className="lg:col-span-2">
-          <div className="card h-full">
-            <div className="flex justify-between items-center mb-6">
-              <div>
-                <h2 className="text-xl font-bold text-gray-900">
-                  {mode === 'camera' ? 'Live AR View' : 'Photo Try-On'}
-                </h2>
-                <div className="flex items-center space-x-4 mt-2">
-                  <div className="flex items-center space-x-2">
-                    <div className={`w-2 h-2 rounded-full ${
-                      isDetecting 
-                        ? pose 
-                          ? 'bg-green-500 animate-pulse' 
-                          : 'bg-yellow-500' 
-                        : 'bg-gray-300'
-                    }`} />
-                    <span className="text-sm text-gray-600">
-                      {isDetecting 
-                        ? pose 
-                          ? `Body tracked (${pose.keypointsCount} points)` 
-                          : 'Searching...' 
-                        : 'Ready'
-                      }
-                    </span>
-                  </div>
-                  {pose && (
-                    <div className="text-sm px-3 py-1 rounded-full bg-green-50 text-green-700">
-                      {Math.round(pose.score * 100)}% confidence
-                    </div>
-                  )}
-                </div>
-              </div>
-              
-              <div className="flex space-x-2">
-                <button
-                  onClick={handleReset}
-                  className="btn-secondary flex items-center space-x-2"
-                >
-                  <RotateCw className="h-4 w-4" />
-                  <span>Reset</span>
-                </button>
-                <button
-                  onClick={handleSaveSnapshot}
-                  disabled={!isDetecting}
-                  className="btn-primary flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Download className="h-4 w-4" />
-                  <span>Save</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Preview Area */}
-            <div className="relative bg-gray-900 rounded-lg overflow-hidden min-h-[500px]">
-                {mode === 'camera' ? (
-                    <div className="relative w-full h-full">
-                    {/* Container untuk video dan overlay - SAMA UKURAN */}
-                    <div className="relative w-full h-full">
-                        {/* Video Element - TANPA object-cover */}
-                        <video
-                        ref={videoRef}
-                        autoPlay
-                        playsInline
-                        muted
-                        className="w-full h-full" // ⚠️ HAPUS object-cover
-                        style={{ 
-                            transform: 'scaleX(-1)', // Mirror video saja
-                            backgroundColor: '#000',
-                            // Pastikan video mempertahankan aspect ratio asli
-                            objectFit: 'contain' // GANTI dari 'cover' ke 'contain'
-                        }}
-                        />
-                        
-                        {/* 2D Pose Overlay - POSISI ABSOLUT di atas video */}
-                        {isDetecting && (
-                        <div className="absolute inset-0">
-                            <PoseOverlay2D
-                            videoRef={videoRef}
-                            pose={pose}
-                            isDetecting={isDetecting}
-                            showSkeleton={true}
-                            showPoints="detailed"
-                            />
-                        </div>
-                        )}
-                        
-                        {/* Three.js Canvas (opsional, disable dulu) */}
-                        {false && isDetecting && selectedOutfit && (
-                        <div className="absolute inset-0 pointer-events-none">
-                            <Canvas>...</Canvas>
-                        </div>
-                        )}
-                    </div>
-                    
-                    {/* Status Overlay */}
-                    <div className="absolute top-4 left-4 bg-black/80 text-white px-4 py-2 rounded-lg font-mono">
-                        <div className="flex items-center space-x-2">
-                        <div className={`w-3 h-3 rounded-full ${
-                            pose ? 'bg-green-500 animate-pulse' : 'bg-yellow-500'
-                        }`} />
-                        <span>{pose ? `${pose.keypointsCount} keypoints` : 'Detecting...'}</span>
-                        </div>
-                        {videoRef.current && (
-                        <div className="text-xs mt-1 text-gray-300">
-                            Video: {videoRef.current.videoWidth}x{videoRef.current.videoHeight} | 
-                            Display: {videoRef.current.clientWidth}x{videoRef.current.clientHeight}
-                        </div>
-                        )}
-                    </div>
-                    </div>
-                )  : mode === 'upload' ? (
-                <div className="relative w-full h-full">
-                  <canvas
-                    ref={canvasRef}
-                    className="w-full h-full object-contain"
-                  />
-                  
-                  {isDetecting && selectedOutfit && pose && (
-                    <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-                        <Canvas
-                        ref={threeCanvasRef}
-                        style={{ width: '100%', height: '100%' }}
-                        orthographic
-                        camera={{ 
-                            zoom: 100, 
-                            position: [0, 0, 5],
-                            left: -videoDimensions.width / 200,
-                            right: videoDimensions.width / 200,
-                            top: videoDimensions.height / 200,
-                            bottom: -videoDimensions.height / 200,
-                            near: 0.1,
-                            far: 1000
-                        }}
-                        >
-                        {/* TAMBAHKAN AMBIENT LIGHT */}
-                        <ambientLight intensity={0.8} />
-                        
-                        {/* RENDER AR CLOTHING */}
-                        <ARClothingRenderer
-                            pose={pose}
-                            clothingItems={selectedOutfit.items}
-                            videoDimensions={videoDimensions}
-                            isDetecting={isDetecting}
-                        />
-                        
-                        {/* DEBUG: Visualize pose keypoints */}
-                        {pose && Object.entries(pose.keypoints).map(([key, point]) => (
-                            <mesh
-                            key={key}
-                            position={[
-                                (point.x - videoDimensions.width / 2) * 0.01,
-                                (-point.y + videoDimensions.height / 2) * 0.01,
-                                0.5
-                            ]}
-                            >
-                            <sphereGeometry args={[0.05, 8, 8]} />
-                            <meshBasicMaterial color="#ff0000" />
-                            </mesh>
-                        ))}
-                        </Canvas>
-                    </div>
-                    )}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full p-8">
-                  <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center mb-6">
-                    <Camera className="h-12 w-12 text-gray-400" />
-                  </div>
-                  <h3 className="text-xl font-medium text-white mb-2">Select a try-on mode</h3>
-                  <p className="text-gray-400 text-center mb-6">
-                    Choose live camera or upload a photo to start
-                  </p>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-      
-            
-             {/* DEBUG PANEL - Tampilkan informasi real-time */}
-            {process.env.NODE_ENV === 'development' && (
-            <div className="fixed bottom-4 left-4 bg-black/90 text-white p-4 rounded-lg text-sm font-mono z-50 max-w-md border border-gray-700">
-                <div className="flex justify-between items-center mb-3">
-                <div className="font-bold flex items-center">
-                    <span className="mr-2">🔍</span>AR DEBUG PANEL
-                </div>
-                <div className="flex space-x-2">
-                    <button
-                    onClick={() => setShowDebug(prev => !prev)}
-                    className="px-2 py-1 bg-blue-600 rounded text-xs"
-                    >
-                    {showDebug ? 'Hide' : 'Show'} 3D
-                    </button>
-                    <button
-                    onClick={handleReset}
-                    className="px-2 py-1 bg-red-600 rounded text-xs"
-                    >
-                    Reset All
-                    </button>
-                </div>
-                </div>
-                
-                <div className="space-y-3">
-                {/* Camera Status */}
-                <div className="grid grid-cols-2 gap-2">
-                    <div>
-                    <div className="text-gray-400 text-xs">Camera</div>
-                    <div className="flex items-center">
-                        <div className={`w-2 h-2 rounded-full mr-2 ${
-                        isCameraReady === 'ready' ? 'bg-green-500 animate-pulse' :
-                        isCameraReady === 'starting' ? 'bg-yellow-500' :
-                        isCameraReady === 'error' ? 'bg-red-500' : 'bg-gray-500'
-                        }`} />
-                        <span>{isCameraReady}</span>
-                    </div>
-                    <div className="text-xs text-gray-300">
-                        {videoDimensions.width}x{videoDimensions.height}
-                    </div>
-                    </div>
-                    
-                    <div>
-                    <div className="text-gray-400 text-xs">Pose Detection</div>
-                    <div className="flex items-center">
-                        <div className={`w-2 h-2 rounded-full mr-2 ${
-                        isDetecting ? 'bg-green-500' : 'bg-red-500'
-                        }`} />
-                        <span>{isDetecting ? 'Active' : 'Inactive'}</span>
-                    </div>
-                    <div className="text-xs text-gray-300">
-                        {pose ? `${pose.keypointsCount} points` : 'No pose'}
-                    </div>
-                    </div>
-                </div>
-                
-                {/* Pose Details */}
-                {pose && (
-                    <div className="border-t border-gray-700 pt-2">
-                    <div className="text-gray-400 text-xs mb-1">Pose Details</div>
-                    <div className="grid grid-cols-3 gap-1 text-xs">
-                        <div className="bg-gray-800 p-2 rounded">
-                        <div>Score</div>
-                        <div className="font-bold">{pose.score?.toFixed(2)}</div>
-                        </div>
-                        <div className="bg-gray-800 p-2 rounded">
-                        <div>Model</div>
-                        <div className="font-bold">{pose.model || 'Unknown'}</div>
-                        </div>
-                        <div className="bg-gray-800 p-2 rounded">
-                        <div>Timestamp</div>
-                        <div className="font-bold">{new Date(pose.timestamp).toLocaleTimeString()}</div>
-                        </div>
-                    </div>
-                    
-                    {/* Keypoint Status */}
-                    <div className="mt-2 grid grid-cols-4 gap-1 text-xs">
-                        {['left_shoulder', 'right_shoulder', 'left_hip', 'right_hip'].map(key => (
-                        <div key={key} className={`p-1 rounded text-center ${
-                            pose.keypoints[key]?.score > 0.3 
-                            ? 'bg-green-900 text-green-300' 
-                            : 'bg-red-900 text-red-300'
-                        }`}>
-                            <div className="font-mono">{key.split('_')[1]}</div>
-                            <div>{pose.keypoints[key]?.score?.toFixed(2) || '0.00'}</div>
-                        </div>
-                        ))}
-                    </div>
-                    </div>
-                )}
-                
-                {/* Actions */}
-                <div className="border-t border-gray-700 pt-2">
-                    <div className="text-gray-400 text-xs mb-1">Quick Actions</div>
-                    <div className="flex flex-wrap gap-1">
-                    <button
-                        onClick={() => {
-                        console.log('=== FULL DEBUG ===');
-                        console.log('Pose:', pose);
-                        console.log('Video:', videoRef.current);
-                        console.log('Video Stream:', videoRef.current?.srcObject?.getTracks());
-                        console.log('Dimensions:', videoDimensions);
-                        console.log('Selected Outfit:', selectedOutfit);
-                        }}
-                        className="px-2 py-1 bg-gray-700 rounded text-xs hover:bg-gray-600"
-                    >
-                        Log Debug
-                    </button>
-                    <button
-                        onClick={() => {
-                        if (videoRef.current) {
-                            const video = videoRef.current;
-                            console.log('Video Element State:', {
-                            width: video.videoWidth,
-                            height: video.videoHeight,
-                            readyState: video.readyState,
-                            currentTime: video.currentTime,
-                            paused: video.paused
-                            });
-                        }
-                        }}
-                        className="px-2 py-1 bg-gray-700 rounded text-xs hover:bg-gray-600"
-                    >
-                        Check Video
-                    </button>
-                    <button
-                        onClick={() => {
-                        if (pose) {
-                            Object.entries(pose.keypoints).forEach(([name, point]) => {
-                            console.log(`${name}: x=${point.x}, y=${point.y}, score=${point.score}`);
-                            });
-                        }
-                        }}
-                        className="px-2 py-1 bg-gray-700 rounded text-xs hover:bg-gray-600"
-                    >
-                        Log Keypoints
-                    </button>
-                    </div>
-                </div>
-                </div>
-            </div>
-            )}
     </div>
   );
 }
